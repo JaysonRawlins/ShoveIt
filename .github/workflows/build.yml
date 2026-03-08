@@ -55,13 +55,14 @@ jobs:
 
       - name: Notarize
         if: env.SIGNING_ENABLED == 'true'
+        timeout-minutes: 30
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           ditto -c -k --keepParent ShoveIt.app ShoveIt.zip
-          xcrun notarytool submit ShoveIt.zip --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun notarytool submit ShoveIt.zip --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait --timeout 20m
           xcrun stapler staple ShoveIt.app
 
       - name: Package
