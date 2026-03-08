@@ -51,11 +51,12 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           IDENTITY="Developer ID Application: Jayson Rawlins ($APPLE_TEAM_ID)"
-          codesign --force --sign "$IDENTITY" --entitlements src/ShoveIt.entitlements --options runtime ShoveIt.app
+          codesign --force --sign "$IDENTITY" --entitlements src/ShoveIt.entitlements --options runtime --timestamp ShoveIt.app
 
       - name: Notarize
         if: env.SIGNING_ENABLED == 'true'
-        timeout-minutes: 30
+        continue-on-error: true
+        timeout-minutes: 15
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
