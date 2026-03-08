@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    ["@semantic-release/commit-analyzer", {
+      "releaseRules": [
+        {"type": "chore", "release": "patch"},
+        {"type": "ci", "release": "patch"},
+        {"type": "docs", "release": "patch"},
+        {"type": "refactor", "release": "patch"}
+      ]
+    }],
+    "@semantic-release/release-notes-generator",
+    ["@semantic-release/github", {
+      "assets": ["ShoveIt.app.tar.gz"]
+    }]
+  ]
+}

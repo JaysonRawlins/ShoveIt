@@ -1,0 +1,138 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      SIGNING_ENABLED: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run tests
+        run: make test
+
+      - name: Build universal binary
+        run: make build
+
+      - name: Import signing certificate
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Sign with Developer ID
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          IDENTITY="Developer ID Application: Jayson Rawlins ($APPLE_TEAM_ID)"
+          codesign --force --sign "$IDENTITY" --entitlements src/ShoveIt.entitlements --options runtime ShoveIt.app
+
+      - name: Notarize
+        if: env.SIGNING_ENABLED == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent ShoveIt.app ShoveIt.zip
+          xcrun notarytool submit ShoveIt.zip --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple ShoveIt.app
+
+      - name: Package
+        run: make publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShoveIt.app
+          path: ShoveIt.app.tar.gz
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Semantic Release
+        id: release
+        uses: cycjimmy/semantic-release-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew tap
+        if: steps.release.outputs.new_release_published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          VERSION="${{ steps.release.outputs.new_release_version }}"
+          SHA256=$(shasum -a 256 ShoveIt.app.tar.gz | cut -d ' ' -f 1)
+
+          CONTENT=$(cat <<CASK | base64
+          cask "shoveit" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/JaysonRawlins/ShoveIt/releases/download/v#{version}/ShoveIt.app.tar.gz"
+            name "ShoveIt"
+            desc "Control notification position on macOS"
+            homepage "https://github.com/JaysonRawlins/ShoveIt"
+
+            depends_on macos: ">= :sonoma"
+
+            app "ShoveIt.app"
+
+            zap trash: [
+              "~/Library/Preferences/com.jjrawlins.ShoveIt.plist",
+              "~/Library/LaunchAgents/com.jjrawlins.ShoveIt.plist",
+            ]
+          end
+          CASK
+          )
+
+          # Remove leading whitespace and encode
+          CONTENT=$(echo "${CONTENT}" | base64 -d | sed 's/^          //' | base64)
+
+          # Get current file SHA (may not exist yet for first release)
+          FILE_SHA=$(gh api repos/JaysonRawlins/homebrew-tap/contents/Casks/shoveit.rb --jq '.sha' 2>/dev/null || echo "")
+
+          if [ -n "$FILE_SHA" ]; then
+            gh api repos/JaysonRawlins/homebrew-tap/contents/Casks/shoveit.rb \
+              -X PUT \
+              -f message="chore: update shoveit to v${VERSION}" \
+              -f content="${CONTENT}" \
+              -f sha="${FILE_SHA}" \
+              -f committer.name="github-actions[bot]" \
+              -f committer.email="github-actions[bot]@users.noreply.github.com"
+          else
+            gh api repos/JaysonRawlins/homebrew-tap/contents/Casks/shoveit.rb \
+              -X PUT \
+              -f message="chore: add shoveit v${VERSION}" \
+              -f content="${CONTENT}" \
+              -f committer.name="github-actions[bot]" \
+              -f committer.email="github-actions[bot]@users.noreply.github.com"
+          fi
