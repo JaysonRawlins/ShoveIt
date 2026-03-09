@@ -55,7 +55,6 @@ jobs:
 
       - name: Notarize
         if: env.SIGNING_ENABLED == 'true'
-        continue-on-error: true
         timeout-minutes: 15
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
