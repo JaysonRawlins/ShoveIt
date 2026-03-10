@@ -1,8 +1,8 @@
 # ShoveIt
 
-Control where macOS notification banners appear on your screen. Move them to any of 9 positions — per-display on multi-monitor setups.
+Control where macOS notification banners appear on your screen. Move them to any of 9 positions, including on a selected monitor in multi-display setups.
 
-Based on [PingPlace](https://github.com/NotWadeGrimridge/PingPlace) by Wade Grimridge, with multi-monitor support, per-display positioning, and macOS Tahoe (26.3+) compatibility.
+Based on [PingPlace](https://github.com/NotWadeGrimridge/PingPlace) by Wade Grimridge, with multi-monitor support and macOS Tahoe (26.3+) compatibility.
 
 ## Install
 
@@ -28,7 +28,10 @@ ShoveIt runs as a menu bar app. Click the icon to choose a notification position
 
 ### Multi-Monitor
 
-When multiple displays are connected, a **Display** selector appears at the top of the menu. Each display has independent position settings — set `Top Middle` on your main monitor and `Bottom Right` on your secondary, for example.
+When multiple displays are connected, a **Display** selector appears at the top of the menu:
+
+- `Automatic`: Use whichever monitor macOS chooses for the notification.
+- `Display N`: Force notifications to that monitor, then apply your selected position.
 
 ### Launch at Login
 

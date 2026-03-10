@@ -64,6 +64,19 @@ func testTopRight() {
     assertApprox(pos.y, 0)
 }
 
+func testTopRightOnSecondaryDisplay() {
+    print("  testTopRightOnSecondaryDisplay")
+    let secondary = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+    let pos = NotificationGeometry.newPosition(
+        for: .topRight, windowSize: windowSize, notifSize: notifSize,
+        origin: origin, padding: padding,
+        screenFrame: secondary, visibleFrame: secondary, paddingAboveDock: paddingAboveDock
+    )
+    let expectedX = secondary.maxX - notifSize.width - padding - origin.x
+    assertApprox(pos.x, expectedX)
+    assertApprox(pos.y, 0)
+}
+
 func testTopLeft() {
     print("  testTopLeft")
     let pos = NotificationGeometry.newPosition(
@@ -148,7 +161,7 @@ func testBannerTopRight() {
         bannerPos: defaultBannerPos, notifSize: bannerSize,
         screenFrame: dialogScreen, visibleFrame: dialogVisible, paddingAboveDock: 30
     )
-    assertApprox(pos.x, 2200) // no change
+    assertApprox(pos.x, dialogScreen.maxX - bannerSize.width - NotificationGeometry.horizontalPadding)
     assertApprox(pos.y, 46)
 }
 
@@ -213,7 +226,7 @@ func testBannerMiddleRight() {
     )
     let dockSize: CGFloat = 30
     let expectedY: CGFloat = (1440 - 57) / 2 - dockSize
-    assertApprox(pos.x, 2200) // no change
+    assertApprox(pos.x, dialogScreen.maxX - bannerSize.width - NotificationGeometry.horizontalPadding)
     assertApprox(pos.y, expectedY)
 }
 
@@ -226,7 +239,7 @@ func testBannerBottomRight() {
     )
     let dockSize: CGFloat = 30
     let expectedY: CGFloat = 1440 - 57 - dockSize - 30
-    assertApprox(pos.x, 2200) // no change
+    assertApprox(pos.x, dialogScreen.maxX - bannerSize.width - NotificationGeometry.horizontalPadding)
     assertApprox(pos.y, expectedY)
 }
 
@@ -237,6 +250,7 @@ func runNotificationGeometryTests() {
     testInitialDataNormalPosition()
     testInitialDataOffScreenCorrection()
     testTopRight()
+    testTopRightOnSecondaryDisplay()
     testTopLeft()
     testTopMiddle()
     testBottomMiddle()

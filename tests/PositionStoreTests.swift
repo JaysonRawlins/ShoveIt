@@ -5,6 +5,7 @@ func runPositionStoreTests() {
     testDefaultPosition()
     testSetAndGetPosition()
     testPersistence()
+    testSelectedDisplayPersistence()
     testMigrationFromDisplayPositions()
 }
 
@@ -61,5 +62,23 @@ func testMigrationFromDisplayPositions() {
 
     // Old keys should be cleaned up
     assertEqual(defaults.dictionary(forKey: "displayPositions") == nil, true, "old displayPositions should be removed")
-    assertEqual(defaults.integer(forKey: "selectedDisplayID"), 0, "old selectedDisplayID should be removed")
+    assertEqual(store.selectedDisplayID, CGDirectDisplayID(CGMainDisplayID()), "selected display should be preserved")
+}
+
+func testSelectedDisplayPersistence() {
+    print("  testSelectedDisplayPersistence")
+    let suiteName = "test.ShoveIt.PositionStore.display"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+
+    let displayID = CGDirectDisplayID(4242)
+    let store1 = PositionStore(defaults: defaults)
+    store1.setSelectedDisplayID(displayID)
+
+    let store2 = PositionStore(defaults: defaults)
+    assertEqual(store2.selectedDisplayID, displayID, "selected display should persist")
+
+    store2.setSelectedDisplayID(nil)
+    let store3 = PositionStore(defaults: defaults)
+    assertEqual(store3.selectedDisplayID == nil, true, "selected display should clear")
 }

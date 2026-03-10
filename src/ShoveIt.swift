@@ -2,11 +2,13 @@ import ApplicationServices
 import Cocoa
 import os.log
 
-class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private let notificationCenterBundleID: String = "com.apple.notificationcenterui"
     private let paddingAboveDock: CGFloat = 30
     private var axObserver: AXObserver?
     private var statusItem: NSStatusItem?
+    private weak var displayDebugItem: NSMenuItem?
+    private var menuRefreshTimer: Timer?
     private var isMenuBarIconHidden: Bool = UserDefaults.standard.bool(forKey: "isMenuBarIconHidden")
     private let logger: Logger = .init(subsystem: "com.jjrawlins.ShoveIt", category: "NotificationMover")
     private let debugMode: Bool = UserDefaults.standard.bool(forKey: "debugMode")
@@ -17,6 +19,11 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var initialWindowSize: CGSize
         var initialNotifSize: CGSize
         var initialPadding: CGFloat
+    }
+
+    private struct DisplayOption {
+        let id: CGDirectDisplayID
+        let name: String
     }
 
     private var screenCaches: [CGDirectDisplayID: ScreenCache] = [:]
@@ -70,6 +77,8 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ) { [weak self] _ in
             self?.debugLog("Screen parameters changed — clearing caches")
             self?.screenCaches.removeAll()
+            self?.coerceSelectedDisplayIfNeeded()
+            self?.rebuildMenu()
             self?.moveAllNotifications()
         }
 
@@ -132,6 +141,30 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func createMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.delegate = self
+
+        let displayMenu = NSMenu()
+        let automaticItem = NSMenuItem(title: "Automatic", action: #selector(changeDisplay(_:)), keyEquivalent: "")
+        automaticItem.representedObject = 0
+        automaticItem.state = positionStore.selectedDisplayID == nil ? .on : .off
+        displayMenu.addItem(automaticItem)
+
+        for display in availableDisplays() {
+            let item = NSMenuItem(title: display.name, action: #selector(changeDisplay(_:)), keyEquivalent: "")
+            item.representedObject = Int(display.id)
+            item.state = positionStore.selectedDisplayID == display.id ? .on : .off
+            displayMenu.addItem(item)
+        }
+
+        let displayItem = NSMenuItem(title: "Display", action: nil, keyEquivalent: "")
+        displayItem.submenu = displayMenu
+        menu.addItem(displayItem)
+
+        let displayDebugItem = NSMenuItem(title: activeDisplayDebugTitle(), action: nil, keyEquivalent: "")
+        displayDebugItem.isEnabled = false
+        menu.addItem(displayDebugItem)
+        self.displayDebugItem = displayDebugItem
+        menu.addItem(NSMenuItem.separator())
 
         let currentPosition = positionStore.position
         for position: NotificationPosition in NotificationPosition.allCases {
@@ -154,6 +187,78 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
 
         return menu
+    }
+
+    private func activeDisplayDebugTitle() -> String {
+        guard let selectedID = positionStore.selectedDisplayID else {
+            return "Target Display: Automatic"
+        }
+
+        if let index = NSScreen.screens.firstIndex(where: { $0.displayID == selectedID }) {
+            let screen = NSScreen.screens[index]
+            let size = "\(Int(screen.frame.width))x\(Int(screen.frame.height))"
+            return "Target Display: D\(index + 1) \(screen.localizedName) \(size) (id: \(selectedID))"
+        }
+
+        return "Target Display: Missing (id: \(selectedID)) -> Automatic"
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu == statusItem?.menu else { return }
+        refreshDisplayDebugLabel()
+        menuRefreshTimer?.invalidate()
+        menuRefreshTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+            self?.refreshDisplayDebugLabel()
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu == statusItem?.menu else { return }
+        menuRefreshTimer?.invalidate()
+        menuRefreshTimer = nil
+    }
+
+    private func refreshDisplayDebugLabel() {
+        displayDebugItem?.title = activeDisplayDebugTitle()
+    }
+
+    private func availableDisplays() -> [DisplayOption] {
+        NSScreen.screens
+            .enumerated()
+            .map { index, screen in
+                let size = "\(Int(screen.frame.width))x\(Int(screen.frame.height))"
+                let name = "Display \(index + 1): \(screen.localizedName) (\(size))"
+                return DisplayOption(id: screen.displayID, name: name)
+            }
+    }
+
+    private func coerceSelectedDisplayIfNeeded() {
+        guard let selectedID = positionStore.selectedDisplayID else { return }
+        let stillExists = NSScreen.screens.contains(where: { $0.displayID == selectedID })
+        if !stillExists {
+            debugLog("Selected display \(selectedID) is no longer available — falling back to Automatic")
+            positionStore.setSelectedDisplayID(nil)
+        }
+    }
+
+    @objc private func changeDisplay(_ sender: NSMenuItem) {
+        let rawID = sender.representedObject as? Int ?? 0
+        let newSelection: CGDirectDisplayID? = rawID > 0 ? CGDirectDisplayID(rawID) : nil
+        positionStore.setSelectedDisplayID(newSelection)
+        debugLog("Display changed to \(newSelection.map(String.init) ?? "Automatic")")
+        screenCaches.removeAll()
+        bannerIsActive = false
+        bannerStableCount = 0
+        rebuildMenu()
+        moveAllNotifications()
+    }
+
+    private func selectedScreen(fallback: NSScreen?) -> NSScreen? {
+        if let selectedID = positionStore.selectedDisplayID,
+           let selected = NSScreen.screens.first(where: { $0.displayID == selectedID }) {
+            return selected
+        }
+        return fallback ?? NSScreen.main
     }
 
     @objc private func toggleMenuBarIcon(_: NSMenuItem) {
@@ -300,7 +405,8 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let targetPosition = positionStore.position
-        guard targetPosition != .topRight else { return }
+        let sourceScreen = NotificationGeometry.screen(containing: bannerPos)
+        let targetScreen = selectedScreen(fallback: sourceScreen)
 
         if isSystemDialog {
             // macOS 26.3+: the banner lives inside a full-screen AXSystemDialog.
@@ -313,21 +419,23 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Use the dialog's own frame as the effective screen frame.
             // Borrow dock size from an NSScreen with matching dimensions.
             let dialogFrame = CGRect(origin: windowPos, size: windowSize)
-            let matchedDockHeight: CGFloat = NSScreen.screens.first(where: {
-                abs($0.frame.width - windowSize.width) < 2 && abs($0.frame.height - windowSize.height) < 2
-            }).map { $0.frame.height - $0.visibleFrame.height } ?? 0
+            let matchedDockHeight: CGFloat = targetScreen.map { $0.frame.height - $0.visibleFrame.height }
+                ?? NSScreen.screens.first(where: {
+                    abs($0.frame.width - windowSize.width) < 2 && abs($0.frame.height - windowSize.height) < 2
+                }).map { $0.frame.height - $0.visibleFrame.height } ?? 0
+            let targetFrame = targetScreen?.frame ?? dialogFrame
             let effectiveVisible = CGRect(
-                x: dialogFrame.minX,
-                y: dialogFrame.minY,
-                width: dialogFrame.width,
-                height: dialogFrame.height - matchedDockHeight
+                x: targetFrame.minX,
+                y: targetFrame.minY,
+                width: targetFrame.width,
+                height: targetFrame.height - matchedDockHeight
             )
 
             let target = NotificationGeometry.bannerTargetPosition(
                 for: targetPosition,
                 bannerPos: bannerPos,
                 notifSize: notifSize,
-                screenFrame: dialogFrame,
+                screenFrame: targetFrame,
                 visibleFrame: effectiveVisible,
                 paddingAboveDock: paddingAboveDock
             )
@@ -345,10 +453,10 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         } else {
             // Pre-26.3: each notification is its own window
-            guard let screen = NotificationGeometry.screen(containing: bannerPos) else { return }
+            guard let sourceScreen, let targetScreen else { return }
 
             let cache = cacheInitialNotificationData(
-                screen: screen,
+                screen: sourceScreen,
                 windowSize: windowSize,
                 notifSize: notifSize,
                 position: bannerPos
@@ -364,8 +472,8 @@ class NotificationMover: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 notifSize: cache.initialNotifSize,
                 origin: cache.initialPosition,
                 padding: cache.initialPadding,
-                screenFrame: screen.frame,
-                visibleFrame: screen.visibleFrame,
+                screenFrame: targetScreen.frame,
+                visibleFrame: targetScreen.visibleFrame,
                 paddingAboveDock: paddingAboveDock
             )
 

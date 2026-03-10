@@ -11,6 +11,7 @@ extension NSScreen {
 /// All methods are static and take explicit screen parameters so they can be unit-tested
 /// without a live display.
 struct NotificationGeometry {
+    static let horizontalPadding: CGFloat = 16
 
     /// Returns the NSScreen whose frame contains the given AX coordinate point,
     /// or the main screen as fallback.
@@ -68,11 +69,11 @@ struct NotificationGeometry {
         let targetX: CGFloat
         switch target {
         case .topLeft, .middleLeft, .bottomLeft:
-            targetX = screenFrame.minX + 16
+            targetX = screenFrame.minX + horizontalPadding
         case .topMiddle, .bottomMiddle, .deadCenter:
             targetX = screenFrame.minX + (screenW - notifSize.width) / 2
         case .topRight, .middleRight, .bottomRight:
-            targetX = bannerPos.x
+            targetX = screenFrame.maxX - notifSize.width - horizontalPadding
         }
 
         let targetY: CGFloat
@@ -119,7 +120,7 @@ struct NotificationGeometry {
         case .topMiddle, .bottomMiddle, .deadCenter:
             newX = screenFrame.minX + (windowSize.width - notifSize.width) / 2 - origin.x
         case .topRight, .middleRight, .bottomRight:
-            newX = 0
+            newX = screenFrame.maxX - notifSize.width - padding - origin.x
         }
 
         let dockSize = screenFrame.height - visibleFrame.height
