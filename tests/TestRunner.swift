@@ -4,7 +4,7 @@ import Foundation
 enum TestRunner {
     static func main() {
         runNotificationGeometryTests()
-        runDisplayPositionStoreTests()
+        runPositionStoreTests()
 
         if failCount > 0 {
             print("\n\(failCount)/\(testCount) assertions FAILED")

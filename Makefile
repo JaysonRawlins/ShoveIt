@@ -1,7 +1,8 @@
 all: build
 
 CODESIGN_IDENTITY ?= -
-SWIFT_SOURCES = src/ShoveIt.swift src/NotificationPosition.swift src/NotificationGeometry.swift src/DisplayPositionStore.swift
+SWIFT_SOURCES = src/ShoveIt.swift src/NotificationPosition.swift src/NotificationGeometry.swift src/PositionStore.swift
+LIB_SOURCES = src/NotificationPosition.swift src/NotificationGeometry.swift src/PositionStore.swift
 
 build:
 	@mkdir -p ShoveIt.app/Contents/MacOS
@@ -16,14 +17,18 @@ build:
 	codesign --entitlements src/ShoveIt.entitlements -fvs "$(CODESIGN_IDENTITY)" ShoveIt.app
 
 test:
-	swiftc -o /tmp/ShoveItTests src/NotificationPosition.swift src/NotificationGeometry.swift src/DisplayPositionStore.swift tests/NotificationGeometryTests.swift tests/DisplayPositionStoreTests.swift tests/TestRunner.swift -target arm64-apple-macos14.0
+	swiftc -o /tmp/ShoveItTests $(LIB_SOURCES) tests/NotificationGeometryTests.swift tests/PositionStoreTests.swift tests/TestRunner.swift -target arm64-apple-macos14.0
 	/tmp/ShoveItTests
+
+e2e: build
+	swiftc -o /tmp/ShoveItE2E $(LIB_SOURCES) src/ShoveIt.swift tests/e2e/E2ETests.swift -target arm64-apple-macos14.0
+	/tmp/ShoveItE2E
 
 run:
 	@open ShoveIt.app
 
 clean:
-	@rm -rf ShoveIt.app ShoveIt.app.tar.gz /tmp/ShoveItTests
+	@rm -rf ShoveIt.app ShoveIt.app.tar.gz /tmp/ShoveItTests /tmp/ShoveItE2E
 
 publish:
 	@tar --uid=0 --gid=0 -czf ShoveIt.app.tar.gz ShoveIt.app
