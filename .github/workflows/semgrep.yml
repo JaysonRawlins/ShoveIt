@@ -16,7 +16,7 @@ jobs:
     container:
       image: semgrep/semgrep@sha256:9349edbadf90c3f3c0c3f55867625354e89680e6fa10d9034042af52fdb0e0d0
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Run Semgrep
         run: |-
           semgrep scan \
